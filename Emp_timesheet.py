@@ -3,6 +3,35 @@ from pymongo import MongoClient
 from mail import review_performance
 from werkzeug.security import check_password_hash
 
+def convert_to_time_range(time_str):
+    from datetime import datetime, timedelta
+    
+    try:
+        start_time = datetime.strptime(time_str, "%I:%M %p")
+        end_time = start_time + timedelta(hours=1)
+        return f"{start_time.strftime('%I:%M')}-{end_time.strftime('%I:%M')}"
+    except ValueError:
+        return time_str  # Return as-is if format is unexpected
+
+
+def transform_timesheet(data):
+    transformed_data = {
+        "employee_name": data["employee_name"],
+        "date": data["date"],
+        "hours": []
+    }
+
+    for hour, details in data["hours"].items():
+        if details["description"].strip():  # Ignore empty descriptions
+            transformed_data["hours"].append({
+                "hour": convert_to_time_range(hour),
+                "task": details["description"],
+                "progress": details.get("status", "Not Set"),
+                "comments": details.get("comment", "")
+            })
+
+    return transformed_data
+
 def add_new_user(user_input):
     client = MongoClient("mongodb+srv://prashitar:Vision123@cluster0.v7ckx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
     db = client["Timesheet"]
@@ -48,6 +77,7 @@ def add_PM_data(data):
     db = client["Timesheet"]
     collection = db["Employee_PM"]
     hours_list = []
+    transformed_data = transform_timesheet(data)
     #for hour, task in data.get("tasks", {}).items():
     #    if task.get("description"):  # Ensure task is not empty
     #        hours_list.append({
@@ -69,7 +99,7 @@ def add_PM_data(data):
     #print("Formatted Data Before Insertion:", data)
 
     # Insert into MongoDB
-    result = collection.insert_one(data)
+    result = collection.insert_one(transformed_data)
 
     
     
@@ -100,6 +130,24 @@ def add_AM_data(data):
     }
     result = collection.insert_one(formatted_data)
     print(f"Data inserted with record id: {result.inserted_id}")
+
+def performance_matrices(email, date, ratings):
+    client = MongoClient("mongodb+srv://prashitar:Vision123@cluster0.v7ckx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+    db = client["Timesheet"]
+    collection = db["Employee_PM"]
+    
+
+    # Update the document where email and date match
+    result = collection.update_one(
+        {"employee_name": email, "date": date},  # Match condition
+        {"$set": {"ratings": ratings}}  # Update or insert the ratings field
+    )
+    emp_name = email
+    manager, mail = get_manager_details(emp_name)
+    user_input = collection.find_one({"employee_name": email, "date": date})
+    review_performance(user_input,manager,mail)
+
+    
 
 def delete_emp(emp_name):
     client = MongoClient("mongodb+srv://prashitar:Vision123@cluster0.v7ckx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
@@ -162,9 +210,29 @@ def delete_emp(emp_name):
 #  ]
 #}
 #
-#add_PM_data(user_input_PM)
+
+#input_data = {
+#    "employee_name": "bhargav",
+#    "date": "2025-03-12",
+#    "hours": {
+#        "8:00 AM": {"description": "AUGMENTATION", "status": "Green"},
+#        "9:00 AM": {"description": "MODEL BUILDING ", "comment": "NOT COMPLETED", "status": "Red"},
+#        "10:00 AM": {"description": ""},
+#        "11:00 AM": {"description": ""},
+#        "12:00 PM": {"description": ""},
+#        "1:00 PM": {"description": ""},
+#        "2:00 PM": {"description": ""},
+#        "3:00 PM": {"description": ""},
+#        "4:00 PM": {"description": ""},
+#        "5:00 PM": {"description": ""}
+#    },
+#    "country": "USA"
+#}
+#add_PM_data(input_data)
 
 #print(get_manager_details("Sudharshan"))
 
 #result = employee_login("bhargav","BNG")
 #print(result)
+
+#performance_matrices("Sudharshan","2025-02-20",{"Performance of the Day": "green", "First Time Quality": "red", "On-Time Delivery": "red", "Engagement and Support": "red"})
